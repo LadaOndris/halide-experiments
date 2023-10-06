@@ -13,3 +13,6 @@ file(GLOB_RECURSE HEADERS "src/*.h")
 
 add_executable(halide_experiments ${SOURCES} ${SOURCES_C} ${HEADERS} main.cpp)
 target_link_libraries(halide_experiments PRIVATE Halide)
+
+add_executable(pixel_differences ${SOURCES} ${SOURCES_C} ${HEADERS} pixel_differences.cpp)
+target_link_libraries(pixel_differences PRIVATE Halide)
