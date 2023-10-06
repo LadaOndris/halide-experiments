@@ -1,90 +1,112 @@
-// Halide tutorial lesson 2: Processing images
 
-// This lesson demonstrates how to pass in input images and manipulate
-// them.
-
-// On linux, you can compile and run it like so:
-// g++ lesson_02*.cpp -g -I <path/to/Halide.h> -I <path/to/tools/halide_image_io.h> -L <path/to/libHalide.so> -lHalide `libpng-config --cflags --ldflags` -ljpeg -lpthread -ldl -o lesson_02 -std=c++17
-// LD_LIBRARY_PATH=<path/to/libHalide.so> ./lesson_02
-
-// On os x:
-// g++ lesson_02*.cpp -g -I <path/to/Halide.h> -I <path/to/tools/halide_image_io.h> -L <path/to/libHalide.so> -lHalide `libpng-config --cflags --ldflags` -ljpeg -o lesson_02 -std=c++17
-// DYLD_LIBRARY_PATH=<path/to/libHalide.dylib> ./lesson_02
-
-// If you have the entire Halide source tree, you can also build it by
-// running:
-//    make tutorial_lesson_02_input_image
-// in a shell with the current directory at the top of the halide
-// source tree.
-
-// The only Halide header file you need is Halide.h. It includes all of Halide.
 #include "Halide.h"
+#include <random>
+#include <chrono>
 
-// Include some support code for loading pngs.
 #include "include/stb_image.h"
 #include "include/stb_image_write.h"
-//using namespace Halide::Tools;
+#include "nonlocal_means_filter.h"
+
 using namespace Halide;
 
+Expr gaussian_random(Expr sigma) {
+    return (random_float() + random_float() + random_float() - 1.5f) * 2 * sigma;
+}
 
-int processHalide() {
-    int width, height, nrChannels;
-    unsigned char *data = stbi_load("images/lena_grayscale.jpg", &width, &height, &nrChannels, 0);
+Func getNoisyImageFunc(float sigma) {
+    Var x, y;
+
+    Func noise;
+    noise(x, y) = abs(gaussian_random(sigma));
+
+    // Create a Halide Expr for the noise
+    Func input("input");
+    input(x, y) = cast<uint8_t>(max(min(10 * x + noise(x, y), 255), 0));
+
+    return input;
+}
+
+Buffer<uint8_t> loadImageFromFile(std::string filePath) {
+    int width;
+    int height;
+    int channels;
+    unsigned char *data = stbi_load(filePath.c_str(), &width, &height, &channels, 0);
     if (!data) {
         // Handle the error (e.g., print an error message)
         std::cerr << "Error loading image: " << stbi_failure_reason() << std::endl;
-        return 1; // Exit with an error code
+        // TODO: raise exception
     }
+    // TODO: free memory
+    // stbi_image_free(data);
+    Halide::Buffer<uint8_t> buffer(data, width, height);
+    return buffer;
+}
 
-    Halide::Buffer<uint8_t> input(data, width, height);
+Buffer<uint8_t> createNoisyImage(int size, float gaussianNoiseSigma) {
+    Func noisyInput = getNoisyImageFunc(gaussianNoiseSigma);
+    Buffer<uint8_t> buffer = noisyInput.realize({size, size});
+    return buffer;
+}
 
-    Func clamped("clamped");
-    clamped = BoundaryConditions::repeat_edge(input);
+void saveImageToFile(Buffer<uint8_t> image, const std::string &targetFilePath) {
+    int numElements = image.width() * image.height() * image.channels();
+    auto *inputData = new uint8_t[numElements];
+    memcpy(inputData, image.data(), numElements);
+    stbi_write_png(targetFilePath.c_str(), image.width(), image.height(), image.channels(),
+                   inputData, image.width() * image.channels());
+    delete[] inputData;
+}
 
-    Var x("x"), y("y"), a("a"), b("b");
+// Custom timing function
+template<typename Func>
+double measureExecutionTime(Func&& func) {
+    using namespace std::chrono;
 
-    int outer_neighborhood_size = 11;
-    int inner_neighborhood_size = 5;
+    // Start the timer
+    high_resolution_clock::time_point start_time = high_resolution_clock::now();
 
-    RDom r_inner(-inner_neighborhood_size / 2, inner_neighborhood_size,
-                 -inner_neighborhood_size / 2, inner_neighborhood_size);
-    RDom r_outer(-outer_neighborhood_size / 2, outer_neighborhood_size,
-                 -outer_neighborhood_size / 2, outer_neighborhood_size);
+    // Execute the provided function or code block
+    func();
 
-    Func neighborhoodSum("neighborhoodSum");
-    neighborhoodSum(x, y) = sum(clamped(x + r_inner.x, y + r_inner.y));
+    // Stop the timer
+    high_resolution_clock::time_point end_time = high_resolution_clock::now();
 
-    // The difference between individual pixels
-    Func pixelDifference("pixelDifference");
-    pixelDifference(x, y, a, b) = cast<uint8_t>(absd(clamped(x, y), clamped(a, b)));
+    // Calculate the elapsed time in seconds
+    duration<double> elapsed_seconds = duration_cast<duration<double>>(end_time - start_time);
 
-    // The difference between two patches
-    Func neighborhoodDifference("neighborhoodDifference");
-    neighborhoodDifference(x, y, a, b) = sum(pixelDifference(x + r_inner.x, y + r_inner.y,
-                                                             a + r_inner.x, b + r_inner.y));
+    return elapsed_seconds.count();
+}
 
-    // The sum of the sums of differences of the current patch and secondary patches
-    Func differencesSum("differencesSum");
-    differencesSum(x, y) += neighborhoodDifference(x, y, x + r_outer.x, y + r_outer.y);
+int processHalide() {
+//    int imageSize = 20;
+//    float gaussianNoiseSigma = 20.f;
+//    auto image = createNoisyImage(imageSize, gaussianNoiseSigma);
+    auto image = loadImageFromFile("images/lena_grayscale.jpg");
 
-    Func result("result");
-    result(x, y) = cast<uint8_t>(differencesSum(x, y));
+    saveImageToFile(image, "outputs/input.png");
 
-    result.compute_root();
+    auto realizationWidth = image.width();
+    auto realizationHeight = image.height();
 
-    Halide::Buffer<uint8_t> output =
-            result.realize({input.width(), input.height()});
+    int searchWindowSize = 13;
+    int patchSize = 5;
 
-    printf("Pseudo-code for the schedule:\n");
-    result.print_loop_nest();
+    Halide::Buffer<uint8_t> outputBuffer(realizationWidth, realizationHeight);
+
+    printf("Running pipeline on CPU:\n");
+    NonlocalMeansFilter filter(image, patchSize, searchWindowSize);
+    filter.scheduleForCPU();
+
+    double executionTime = measureExecutionTime([&filter, &outputBuffer] {
+        filter.result.realize(outputBuffer);
+    });
+    std::cout << "Execution time: " << executionTime << " seconds" << std::endl;
+
+    printf("\n\nPseudo-code for the schedule:\n");
+    filter.result.print_loop_nest();
     printf("\n");
 
-    auto *outputData = new uint8_t[width * height * nrChannels];
-    memcpy(outputData, output.data(), width * height * nrChannels);
-    stbi_write_png("outputs/output.png", width, height, nrChannels, outputData, width * nrChannels);
-
-    delete[] outputData;
-    stbi_image_free(data);
+    saveImageToFile(outputBuffer, "outputs/output.png");
 
     printf("Success!\n");
 }
@@ -94,7 +116,7 @@ int main(int argc, char **argv) {
         return processHalide();
     } catch (CompileError &e) {
         std::cout << e.what() << std::endl;
-    }  catch (RuntimeError &e) {
+    } catch (RuntimeError &e) {
         std::cout << e.what() << std::endl;
     }
 
