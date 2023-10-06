@@ -28,10 +28,6 @@ using namespace Halide;
 
 
 int processHalide() {
-    unsigned int search_window_size = 10;
-    unsigned int neighborhood_size = 8;
-
-
     int width, height, nrChannels;
     unsigned char *data = stbi_load("images/lena_grayscale.jpg", &width, &height, &nrChannels, 0);
     if (!data) {
@@ -47,20 +43,32 @@ int processHalide() {
 
     Var x("x"), y("y"), a("a"), b("b");
 
-    // Sums the value in the neighborhood
-    Expr neighborhood_expr = static_cast<Expr>(neighborhood_size);
-    Expr half_neighborhood_expr = static_cast<Expr>(neighborhood_size / 2);
-    Expr squared_neighborhood = static_cast<Expr>(neighborhood_size * neighborhood_size);
+    int outer_neighborhood_size = 11;
+    int inner_neighborhood_size = 5;
 
-    Func nonLocalMeansFunc("nonLocalMeansFunc");
-    nonLocalMeansFunc(x, y) = cast<uint32_t>(0);
-    RDom r(-half_neighborhood_expr, neighborhood_expr, -half_neighborhood_expr, neighborhood_expr);
-    nonLocalMeansFunc(x, y) += cast<uint32_t>(clamped(x + r.x, y + r.y));
-    nonLocalMeansFunc(x, y) /= squared_neighborhood;
+    RDom r_inner(-inner_neighborhood_size / 2, inner_neighborhood_size,
+                 -inner_neighborhood_size / 2, inner_neighborhood_size);
+    RDom r_outer(-outer_neighborhood_size / 2, outer_neighborhood_size,
+                 -outer_neighborhood_size / 2, outer_neighborhood_size);
 
+    Func neighborhoodSum("neighborhoodSum");
+    neighborhoodSum(x, y) = sum(clamped(x + r_inner.x, y + r_inner.y));
+
+    // The difference between individual pixels
+    Func pixelDifference("pixelDifference");
+    pixelDifference(x, y, a, b) = cast<uint8_t>(absd(clamped(x, y), clamped(a, b)));
+
+    // The difference between two patches
+    Func neighborhoodDifference("neighborhoodDifference");
+    neighborhoodDifference(x, y, a, b) = sum(pixelDifference(x + r_inner.x, y + r_inner.y,
+                                                             a + r_inner.x, b + r_inner.y));
+
+    // The sum of the sums of differences of the current patch and secondary patches
+    Func differencesSum("differencesSum");
+    differencesSum(x, y) += neighborhoodDifference(x, y, x + r_outer.x, y + r_outer.y);
 
     Func result("result");
-    result(x, y) = cast<uint8_t>(nonLocalMeansFunc(x, y));
+    result(x, y) = cast<uint8_t>(differencesSum(x, y));
 
     result.compute_root();
 
@@ -85,6 +93,8 @@ int main(int argc, char **argv) {
     try {
         return processHalide();
     } catch (CompileError &e) {
+        std::cout << e.what() << std::endl;
+    }  catch (RuntimeError &e) {
         std::cout << e.what() << std::endl;
     }
 
