@@ -2,9 +2,10 @@
 
 
 #include "nonlocal_means_filter.h"
+#include "gpu.h"
 
 NonlocalMeansFilter::NonlocalMeansFilter(
-        const Buffer<uint8_t>& input, int patchSize, int searchWindowSize) :
+        const Buffer<uint8_t> &input, int patchSize, int searchWindowSize) :
         input(input), patchSize(patchSize), searchWindowSize(searchWindowSize),
         x("x"), y("y"), a("a"), b("b"), i("i"), j("j"),
         clamped("clamped"), weightedPixelDist("weightedPixelDist"),
@@ -28,14 +29,14 @@ void NonlocalMeansFilter::implement() {
     Expr half_inner_neighborhood = patchSize / 2;
 
     // The difference between individual pixels
-    weightedPixelDist(x, y, a, b, i, j) = gaussian(i + half_inner_neighborhood, j + half_inner_neighborhood) *
-                                          pow(absd(clamped(x, y), clamped(a, b)), 2.0f);
+    weightedPixelDist(x, y, a, b) = pow(absd(clamped(x, y), clamped(a, b)), 2.0f);
 
     // The difference between two patches
     neighborhoodDifference(x, y, a, b) = sum(
+            gaussian(r_inner.x + half_inner_neighborhood,
+                     r_inner.y + half_inner_neighborhood) *
             weightedPixelDist(x + r_inner.x, y + r_inner.y,
-                              a + r_inner.x, b + r_inner.y,
-                              r_inner.x, r_inner.y) // Pass the shift, which is required by the gaussian.
+                              a + r_inner.x, b + r_inner.y)
     );
 
     // Returns the value of one if the points differ.
@@ -83,10 +84,22 @@ void NonlocalMeansFilter::scheduleForCPU() {
     // (with a quadratic complexity).
     gaussian.compute_root();
 
+    //weightedPixelDist.compute_at(a).vectorize(i, 4);
+
     result.compute_root().parallel(y);
 }
 
 bool NonlocalMeansFilter::scheduleForGPU() {
-    return false;
+    Target target = find_gpu_target();
+    if (!target.has_gpu_feature()) {
+        return false;
+    }
+
+    result.compute_root().gpu_threads(x, y);
+
+    printf("Target: %s\n", target.to_string().c_str());
+    result.compile_jit(target);
+
+    return true;
 }
 

@@ -6,6 +6,7 @@
 #include "include/stb_image.h"
 #include "include/stb_image_write.h"
 #include "nonlocal_means_filter.h"
+#include "gpu.h"
 
 using namespace Halide;
 
@@ -59,7 +60,7 @@ void saveImageToFile(Buffer<uint8_t> image, const std::string &targetFilePath) {
 
 // Custom timing function
 template<typename Func>
-double measureExecutionTime(Func&& func) {
+double measureExecutionTime(Func &&func) {
     using namespace std::chrono;
 
     // Start the timer
@@ -81,6 +82,10 @@ int processHalide() {
 //    int imageSize = 20;
 //    float gaussianNoiseSigma = 20.f;
 //    auto image = createNoisyImage(imageSize, gaussianNoiseSigma);
+    std::cout << "Finding a GPU target..." << std::endl;
+    auto target = find_gpu_target();
+    std::cout << "Target found: " << target.arch << std::endl;
+
     auto image = loadImageFromFile("images/lena_grayscale.jpg");
 
     saveImageToFile(image, "outputs/input.png");
