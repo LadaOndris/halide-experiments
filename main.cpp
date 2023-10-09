@@ -2,11 +2,13 @@
 #include "Halide.h"
 #include <random>
 #include <chrono>
+#include <unistd.h> // for getopt
 
 #include "include/stb_image.h"
 #include "include/stb_image_write.h"
 #include "nonlocal_means_filter.h"
 #include "gpu.h"
+#include "ColorToGrayConverter.h"
 
 using namespace Halide;
 
@@ -39,8 +41,14 @@ Buffer<uint8_t> loadImageFromFile(std::string filePath) {
     }
     // TODO: free memory
     // stbi_image_free(data);
-    Halide::Buffer<uint8_t> buffer(data, width, height);
-    return buffer;
+    if (channels > 1) {
+        Halide::Buffer<uint8_t> buffer =
+                Halide::Buffer<uint8_t>::make_interleaved(data, width, height, channels);
+        return buffer;
+    } else {
+        Halide::Buffer<uint8_t> buffer(data, width, height);
+        return buffer;
+    }
 }
 
 Buffer<uint8_t> createNoisyImage(int size, float gaussianNoiseSigma) {
@@ -50,12 +58,15 @@ Buffer<uint8_t> createNoisyImage(int size, float gaussianNoiseSigma) {
 }
 
 void saveImageToFile(Buffer<uint8_t> image, const std::string &targetFilePath) {
-    int numElements = image.width() * image.height() * image.channels();
-    auto *inputData = new uint8_t[numElements];
-    memcpy(inputData, image.data(), numElements);
-    stbi_write_png(targetFilePath.c_str(), image.width(), image.height(), image.channels(),
-                   inputData, image.width() * image.channels());
-    delete[] inputData;
+//    int numElements = image.width() * image.height() * image.channels();
+//    auto *inputData = new uint8_t[numElements];
+//    memcpy(inputData, image.data(), numElements);
+    int result = stbi_write_png(targetFilePath.c_str(), image.width(), image.height(), image.channels(),
+                                image.data(), image.width() * image.channels());
+    if (result == 0) {
+        std::cerr << "Error: Failed to save image to file." << std::endl;
+    }
+//    delete[] inputData;
 }
 
 // Custom timing function
@@ -78,7 +89,7 @@ double measureExecutionTime(Func &&func) {
     return elapsed_seconds.count();
 }
 
-int processHalide() {
+int processHalide(const std::string &imagePath, int reps, const std::string &pipelineType) {
 //    int imageSize = 20;
 //    float gaussianNoiseSigma = 20.f;
 //    auto image = createNoisyImage(imageSize, gaussianNoiseSigma);
@@ -86,7 +97,8 @@ int processHalide() {
     auto target = find_gpu_target();
     std::cout << "Target found: " << target.arch << std::endl;
 
-    auto image = loadImageFromFile("images/lena_grayscale.jpg");
+    std::cout << "Preparing input image..." << std::endl;
+    auto image = loadImageFromFile(imagePath);
 
     saveImageToFile(image, "outputs/input.png");
 
@@ -96,34 +108,87 @@ int processHalide() {
     int searchWindowSize = 13;
     int patchSize = 5;
 
-    Halide::Buffer<uint8_t> outputBuffer(realizationWidth, realizationHeight);
+    std::cout << "Running pipeline on the CPU..." << std::endl;
 
-    printf("Running pipeline on CPU:\n");
-    NonlocalMeansFilter filter(image, patchSize, searchWindowSize);
-    filter.scheduleForCPU();
+    std::unique_ptr<HalidePipeline> pipeline;
+    if (pipelineType == "colortogray") {
+        assert(image.channels() == 3);
+        pipeline = std::make_unique<ColorToGrayConverter>(image);
+    } else if (pipelineType == "nonlocalmeans") {
+        assert(image.channels() == 1);
+        pipeline = std::make_unique<NonlocalMeansFilter>(image, patchSize, searchWindowSize);
+    } else {
+        std::cerr << "Invalid pipeline type: " << pipelineType << std::endl;
+        return EXIT_FAILURE; // Return an error code
+    }
+    pipeline->scheduleForCPU();
 
-    double executionTime = measureExecutionTime([&filter, &outputBuffer] {
-        filter.result.realize(outputBuffer);
+    auto outputBuffer = Halide::Buffer<uint8_t>(realizationWidth, realizationHeight);
+    // Warm-up before measuring
+    pipeline->result.realize(outputBuffer);
+
+    double executionTime = measureExecutionTime([&pipeline, &outputBuffer, &reps] {
+        for (int i = 0; i < reps; i++) {
+            pipeline->result.realize(outputBuffer);
+        }
     });
-    std::cout << "Execution time: " << executionTime << " seconds" << std::endl;
+    std::cout << "Execution time: " << (executionTime / reps) * 1000 << " ms/rep" << std::endl;
 
-    printf("\n\nPseudo-code for the schedule:\n");
-    filter.result.print_loop_nest();
+    printf("\nPseudo-code for the schedule:\n");
+    pipeline->result.print_loop_nest();
     printf("\n");
 
+    std::cout << "Saving result..." << std::endl;
     saveImageToFile(outputBuffer, "outputs/output.png");
+}
 
-    printf("Success!\n");
+struct Arguments {
+    std::string imagePath;
+    std::string pipelineType;
+    int reps = 1;
+    bool areValid = false;
+};
+
+Arguments processArguments(int argc, char **argv) {
+    Arguments args;
+    int opt;
+    while ((opt = getopt(argc, argv, "i:r:p:")) != -1) {
+        switch (opt) {
+            case 'i':
+                args.imagePath = optarg;
+                break;
+            case 'r':
+                args.reps = std::stoi(optarg);
+                break;
+            case 'p':
+                args.pipelineType = optarg;
+                break;
+            default:
+                std::cerr << "Usage: " << argv[0] << " -i <image_path> -r <reps> -p <pipeline_type>" << std::endl;
+                return args;
+        }
+    }
+    if (args.imagePath.empty() || args.pipelineType.empty()) {
+        std::cerr << "Both --image and --pipeline arguments are required." << std::endl;
+        return args;
+    }
+    args.areValid = true;
+    return args;
 }
 
 int main(int argc, char **argv) {
+    Arguments args = processArguments(argc, argv);
+    if (!args.areValid) {
+        return EXIT_FAILURE;
+    }
+
     try {
-        return processHalide();
+        return processHalide(args.imagePath, args.reps, args.pipelineType);
     } catch (CompileError &e) {
         std::cout << e.what() << std::endl;
     } catch (RuntimeError &e) {
         std::cout << e.what() << std::endl;
     }
 
-    return 0;
+    return EXIT_SUCCESS;
 }

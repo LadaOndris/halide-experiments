@@ -84,9 +84,15 @@ void NonlocalMeansFilter::scheduleForCPU() {
     // (with a quadratic complexity).
     gaussian.compute_root();
 
-    //weightedPixelDist.compute_at(a).vectorize(i, 4);
+    neighborhoodWeight.compute_root().compute_with(neighborhoodDifference, a);
 
-    result.compute_root().parallel(y);
+//    Var x_outer, y_outer, x_inner, y_inner, tile_index;
+//    result.tile(x, y, x_outer, y_outer, x_inner, y_inner, 16, 16)
+//            .fuse(x_outer, y_outer, tile_index)
+//            .parallel(tile_index);
+
+
+    result.compute_root();//.parallel(y);
 }
 
 bool NonlocalMeansFilter::scheduleForGPU() {
