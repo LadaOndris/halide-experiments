@@ -26,9 +26,8 @@ bool ColorToGrayConverter::scheduleForGPU() {
     if (!target.has_gpu_feature()) {
         return false;
     }
-    //Var xi, yi;
-    //result.gpu_tile(x, y, xi, yi, 16, 16);
-    result.compute_root();
+    Var xi, yi, xo, yo;
+    result.gpu_tile(x, y, xi, yi, xo, yo, 16, 16);
 
     printf("Target: %s\n", target.to_string().c_str());
     result.compile_jit(target);
