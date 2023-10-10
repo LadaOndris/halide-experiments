@@ -95,7 +95,7 @@ int processHalide(const std::string &imagePath, int reps, const std::string &pip
 //    auto image = createNoisyImage(imageSize, gaussianNoiseSigma);
     std::cout << "Finding a GPU target..." << std::endl;
     auto target = find_gpu_target();
-    std::cout << "Target found: " << target.arch << std::endl;
+    std::cout << "Target found: " << target.to_string().c_str() << std::endl;
 
     std::cout << "Preparing input image..." << std::endl;
     auto image = loadImageFromFile(imagePath);
@@ -108,8 +108,6 @@ int processHalide(const std::string &imagePath, int reps, const std::string &pip
     int searchWindowSize = 13;
     int patchSize = 5;
 
-    std::cout << "Running pipeline on the CPU..." << std::endl;
-
     std::unique_ptr<HalidePipeline> pipeline;
     if (pipelineType == "colortogray") {
         assert(image.channels() == 3);
@@ -121,7 +119,14 @@ int processHalide(const std::string &imagePath, int reps, const std::string &pip
         std::cerr << "Invalid pipeline type: " << pipelineType << std::endl;
         return EXIT_FAILURE; // Return an error code
     }
-    pipeline->scheduleForCPU();
+
+    if (target.has_gpu_feature()) {
+        std::cout << "Running pipeline on the GPU..." << std::endl;
+        pipeline->scheduleForGPU();
+    } else {
+        std::cout << "Running pipeline on the CPU..." << std::endl;
+        pipeline->scheduleForCPU();
+    }
 
     auto outputBuffer = Halide::Buffer<uint8_t>(realizationWidth, realizationHeight);
     // Warm-up before measuring

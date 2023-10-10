@@ -1,5 +1,6 @@
 
 #include "ColorToGrayConverter.h"
+#include "gpu.h"
 
 ColorToGrayConverter::ColorToGrayConverter(const Buffer<uint8_t> &input)
         : input(input),
@@ -21,7 +22,16 @@ void ColorToGrayConverter::scheduleForCPU() {
 }
 
 bool ColorToGrayConverter::scheduleForGPU() {
-    return false;
+    Target target = find_gpu_target();
+    if (!target.has_gpu_feature()) {
+        return false;
+    }
+    Var xi, yi;
+    result.gpu_tile(x, y, xi, yi, 16, 16);
+
+    printf("Target: %s\n", target.to_string().c_str());
+    result.compile_jit(target);
+    return true;
 }
 
 
