@@ -27,7 +27,11 @@ bool ColorToGrayConverter::scheduleForGPU() {
         return false;
     }
     Var xi, yi, xo, yo;
-    result.gpu_threads(x, y);
+    result.split(x, xo, xi, 16)
+            .split(y, yo, yi, 16)
+            .reorder(xi, yi, xo, yo)
+            .gpu_blocks(xo, yo)
+            .gpu_threads(xi, yi);
 
     printf("Target: %s\n", target.to_string().c_str());
     result.compile_jit(target);
