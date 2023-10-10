@@ -23,7 +23,7 @@ Target find_gpu_target() {
         features_to_try.push_back(Target::OpenCL);
     }
     // Uncomment the following lines to also try CUDA:
-    // features_to_try.push_back(Target::CUDA);
+    features_to_try.push_back(Target::CUDA);
 
     for (Target::Feature f: features_to_try) {
         Target new_target = target.with_feature(f);
