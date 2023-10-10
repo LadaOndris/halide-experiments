@@ -44,9 +44,11 @@ Buffer<uint8_t> loadImageFromFile(std::string filePath) {
     if (channels > 1) {
         Halide::Buffer<uint8_t> buffer =
                 Halide::Buffer<uint8_t>::make_interleaved(data, width, height, channels);
+        buffer.set_host_dirty();
         return buffer;
     } else {
         Halide::Buffer<uint8_t> buffer(data, width, height);
+        buffer.set_host_dirty();
         return buffer;
     }
 }
