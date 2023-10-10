@@ -130,11 +130,11 @@ int processHalide(const std::string &imagePath, int reps, const std::string &pip
 
     auto outputBuffer = Halide::Buffer<uint8_t>(realizationWidth, realizationHeight);
     // Warm-up before measuring
-    pipeline->result.realize(outputBuffer);
+    pipeline->result.realize(outputBuffer, target);
 
-    double executionTime = measureExecutionTime([&pipeline, &outputBuffer, &reps] {
+    double executionTime = measureExecutionTime([&pipeline, &outputBuffer, &reps, &target] {
         for (int i = 0; i < reps; i++) {
-            pipeline->result.realize(outputBuffer);
+            pipeline->result.realize(outputBuffer, target);
         }
     });
     std::cout << "Execution time: " << (executionTime / reps) * 1000 << " ms/rep" << std::endl;
