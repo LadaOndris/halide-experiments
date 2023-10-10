@@ -101,7 +101,8 @@ bool NonlocalMeansFilter::scheduleForGPU() {
         return false;
     }
 
-    result.compute_root().gpu_threads(x, y);
+    Var xi, yi, xo, yo;
+    result.gpu_tile(x, y, xi, yi, xo, yo, 32, 32);
 
     printf("Target: %s\n", target.to_string().c_str());
     result.compile_jit(target);
