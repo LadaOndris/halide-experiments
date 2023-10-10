@@ -66,9 +66,9 @@ void NonlocalMeansFilter::implement() {
 }
 
 Func NonlocalMeansFilter::createGaussian(int width, int height, float sigma) {
-    Var x, y;
+    Var x("x"), y("y");
 
-    Func gauss;
+    Func gauss("gauss");
     gauss(x, y) = exp(
             -((x - (width - 1) / 2) * (x - (width - 1) / 2) + (y - (height - 1) / 2) * (y - (height - 1) / 2)) /
             (2.0f * sigma * sigma));
@@ -76,7 +76,7 @@ Func NonlocalMeansFilter::createGaussian(int width, int height, float sigma) {
     RDom r(0, width, 0, height);
     Expr gaussSum = sum(gauss(r.x, r.y));
 
-    Func normalized_gauss;
+    Func normalized_gauss("normalized_gauss");
     normalized_gauss(x, y) = gauss(x, y) / gaussSum;
 
     return normalized_gauss;
