@@ -27,7 +27,7 @@ bool ColorToGrayConverter::scheduleForGPU() {
         return false;
     }
     Var xi, yi, xo, yo;
-    result.gpu_tile(x, y, xi, yi, xo, yo, 16, 16);
+    result.gpu_threads(x, y);
 
     printf("Target: %s\n", target.to_string().c_str());
     result.compile_jit(target);
