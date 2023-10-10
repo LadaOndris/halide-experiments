@@ -4,8 +4,7 @@
 
 ColorToGrayConverter::ColorToGrayConverter(const Buffer<uint8_t> &input)
         : input(input),
-          x("x"), y("y"), c("c"),
-          convertToGray("convertToGray") {
+          x("x"), y("y"), c("c") {
     implement();
 }
 

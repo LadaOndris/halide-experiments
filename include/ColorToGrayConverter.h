@@ -17,7 +17,6 @@ private:
 
 public:
     Var x, y, c;
-    Func convertToGray;
 
     explicit ColorToGrayConverter(const Buffer<uint8_t> &input);
 

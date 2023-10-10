@@ -137,6 +137,11 @@ int processHalide(const std::string &imagePath, int reps, const std::string &pip
             pipeline->result.realize(outputBuffer, target);
         }
     });
+
+    // Copy from GPU
+    if (target.has_gpu_feature()) {
+        outputBuffer.copy_to_host();
+    }
     std::cout << "Execution time: " << (executionTime / reps) * 1000 << " ms/rep" << std::endl;
 
     printf("\nPseudo-code for the schedule:\n");
