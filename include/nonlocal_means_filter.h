@@ -38,7 +38,6 @@ public:
     Func weightsSum;
     Func newPixelValues;
     Func newPixelValuesNormalized;
-    Func result;
 
     explicit NonlocalMeansFilter(const Buffer<uint8_t>& input, int patchSize, int searchWindowSize);
 

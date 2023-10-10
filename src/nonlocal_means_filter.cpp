@@ -16,8 +16,7 @@ NonlocalMeansFilter::NonlocalMeansFilter(
         neighborhoodWeight("neighborhoodWeight"),
         weightsSum("weightsSum"),
         newPixelValues("newPixelValues"),
-        newPixelValuesNormalized("newPixelValuesNormalized"),
-        result("result") {
+        newPixelValuesNormalized("newPixelValuesNormalized") {
     implement();
 }
 
