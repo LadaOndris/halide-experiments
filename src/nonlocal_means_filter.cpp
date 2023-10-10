@@ -8,10 +8,15 @@ NonlocalMeansFilter::NonlocalMeansFilter(
         const Buffer<uint8_t> &input, int patchSize, int searchWindowSize) :
         input(input), patchSize(patchSize), searchWindowSize(searchWindowSize),
         x("x"), y("y"), a("a"), b("b"), i("i"), j("j"),
-        clamped("clamped"), weightedPixelDist("weightedPixelDist"),
+        clamped("clamped"),
+        gaussian("gaussian"),
+        weightedPixelDist("weightedPixelDist"),
         neighborhoodDifference("neighborhoodDifference"),
+        areDifferentPoints("areDifferentPoints"),
         neighborhoodWeight("neighborhoodWeight"),
-        weightsSum("weightsSum"), newPixelValues("newPixelValues"),
+        weightsSum("weightsSum"),
+        newPixelValues("newPixelValues"),
+        newPixelValuesNormalized("newPixelValuesNormalized"),
         result("result") {
     implement();
 }
@@ -100,6 +105,8 @@ bool NonlocalMeansFilter::scheduleForGPU() {
     if (!target.has_gpu_feature()) {
         return false;
     }
+
+    gaussian.compute_root();
 
     Var xi, yi, xo, yo;
     result.gpu_tile(x, y, xi, yi, xo, yo, 32, 32);
