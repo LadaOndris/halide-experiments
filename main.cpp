@@ -41,16 +41,15 @@ Buffer<uint8_t> loadImageFromFile(std::string filePath) {
     }
     // TODO: free memory
     // stbi_image_free(data);
+    Halide::Buffer<uint8_t> buffer;
     if (channels > 1) {
-        Halide::Buffer<uint8_t> buffer =
-                Halide::Buffer<uint8_t>::make_interleaved(data, width, height, channels);
-        buffer.set_host_dirty();
-        return buffer;
+        buffer = Halide::Buffer<uint8_t>::make_interleaved(data, width, height, channels);
     } else {
-        Halide::Buffer<uint8_t> buffer(data, width, height);
-        buffer.set_host_dirty();
-        return buffer;
+        buffer = Halide::Buffer<uint8_t>(data, width, height);
     }
+    // Signal for the GPU that the buffer's changed.
+    buffer.set_host_dirty();
+    return buffer;
 }
 
 Buffer<uint8_t> createNoisyImage(int size, float gaussianNoiseSigma) {
@@ -91,44 +90,52 @@ double measureExecutionTime(Func &&func) {
     return elapsed_seconds.count();
 }
 
-int processHalide(const std::string &imagePath, int reps, const std::string &pipelineType) {
-//    int imageSize = 20;
-//    float gaussianNoiseSigma = 20.f;
-//    auto image = createNoisyImage(imageSize, gaussianNoiseSigma);
-    std::cout << "Finding a GPU target..." << std::endl;
-    auto target = find_gpu_target();
-    std::cout << "Target found: " << target.to_string().c_str() << std::endl;
+Target getTarget(const std::string &targetType) {
+    Target target;
+    if (targetType == "gpu") {
+        std::cout << "Searching for a GPU target..." << std::endl;
+        target = find_gpu_target();
+    } else if (targetType == "cpu") {
+        std::cout << "Searching for a CPU target..." << std::endl;
+        target = get_host_target();
+    } else {
+        std::cerr << "Unknown target type: " << targetType << std::endl;
+    }
 
-    std::cout << "Preparing input image..." << std::endl;
-    auto image = loadImageFromFile(imagePath);
+    std::cout << "The target found: " << target.to_string().c_str() << std::endl;
+    return target;
+}
 
-    saveImageToFile(image, "outputs/input.png");
-
-    auto realizationWidth = image.width();
-    auto realizationHeight = image.height();
-
+std::shared_ptr<HalidePipeline> createPipeline(const std::string &pipelineType,
+                                               const Buffer<uint8_t> &image) {
     int searchWindowSize = 13;
     int patchSize = 5;
 
-    std::unique_ptr<HalidePipeline> pipeline;
+    std::shared_ptr<HalidePipeline> pipeline;
     if (pipelineType == "colortogray") {
         assert(image.channels() == 3);
-        pipeline = std::make_unique<ColorToGrayConverter>(image);
+        pipeline = std::make_shared<ColorToGrayConverter>(image);
     } else if (pipelineType == "nonlocalmeans") {
         assert(image.channels() == 1);
-        pipeline = std::make_unique<NonlocalMeansFilter>(image, patchSize, searchWindowSize);
+        pipeline = std::make_shared<NonlocalMeansFilter>(image, patchSize, searchWindowSize);
     } else {
         std::cerr << "Invalid pipeline type: " << pipelineType << std::endl;
-        return EXIT_FAILURE; // Return an error code
+        return nullptr;
     }
+    return pipeline;
+}
 
-    if (target.has_gpu_feature()) {
-        std::cout << "Running pipeline on the GPU..." << std::endl;
-        pipeline->scheduleForGPU();
-    } else {
-        std::cout << "Running pipeline on the CPU..." << std::endl;
-        pipeline->scheduleForCPU();
-    }
+void printPipelineSchedule(std::shared_ptr<HalidePipeline> pipeline) {
+    printf("\nPseudo-code for the schedule:\n");
+    pipeline->result.print_loop_nest();
+    printf("\n");
+}
+
+Buffer<uint8_t> runPipeline(std::shared_ptr<HalidePipeline> pipeline,
+                            const Buffer<uint8_t> &image,
+                            const Target &target, int reps) {
+    auto realizationWidth = image.width();
+    auto realizationHeight = image.height();
 
     auto outputBuffer = Halide::Buffer<uint8_t>(realizationWidth, realizationHeight);
     // Warm-up before measuring
@@ -146,9 +153,33 @@ int processHalide(const std::string &imagePath, int reps, const std::string &pip
     }
     std::cout << "Execution time: " << (executionTime / reps) * 1000 << " ms/rep" << std::endl;
 
-    printf("\nPseudo-code for the schedule:\n");
-    pipeline->result.print_loop_nest();
-    printf("\n");
+    return outputBuffer;
+}
+
+int processHalide(const std::string &imagePath, int reps,
+                  const std::string &pipelineType, const std::string &targetType) {
+//    int imageSize = 20;
+//    float gaussianNoiseSigma = 20.f;
+//    auto image = createNoisyImage(imageSize, gaussianNoiseSigma);
+    auto target = getTarget(targetType);
+
+    std::cout << "Preparing input image..." << std::endl;
+    auto image = loadImageFromFile(imagePath);
+    saveImageToFile(image, "outputs/input.png");
+
+    std::cout << "Instantiating pipeline..." << std::endl;
+    auto pipeline = createPipeline(pipelineType, image);
+
+    if (target.has_gpu_feature()) {
+        std::cout << "Running pipeline on the GPU..." << std::endl;
+        pipeline->scheduleForGPU();
+    } else {
+        std::cout << "Running pipeline on the CPU..." << std::endl;
+        pipeline->scheduleForCPU();
+    }
+    printPipelineSchedule(pipeline);
+
+    auto outputBuffer = runPipeline(pipeline, image, target, reps);
 
     std::cout << "Saving result..." << std::endl;
     saveImageToFile(outputBuffer, "outputs/output.png");
@@ -158,13 +189,14 @@ struct Arguments {
     std::string imagePath;
     std::string pipelineType;
     int reps = 1;
+    std::string target;
     bool areValid = false;
 };
 
 Arguments processArguments(int argc, char **argv) {
     Arguments args;
     int opt;
-    while ((opt = getopt(argc, argv, "i:r:p:")) != -1) {
+    while ((opt = getopt(argc, argv, "i:r:p:t:")) != -1) {
         switch (opt) {
             case 'i':
                 args.imagePath = optarg;
@@ -175,13 +207,21 @@ Arguments processArguments(int argc, char **argv) {
             case 'p':
                 args.pipelineType = optarg;
                 break;
+            case 't':
+                args.target = optarg;
+                break;
             default:
-                std::cerr << "Usage: " << argv[0] << " -i <image_path> -r <reps> -p <pipeline_type>" << std::endl;
+                std::cerr << "Usage: " << argv[0] << " -i <image_path> -r <reps> -p <pipeline_type> -t <target>"
+                          << std::endl;
                 return args;
         }
     }
     if (args.imagePath.empty() || args.pipelineType.empty()) {
         std::cerr << "Both --image and --pipeline arguments are required." << std::endl;
+        return args;
+    }
+    if (args.target != "cpu" && args.target != "gpu") {
+        std::cerr << "--target (-t) must be one of [gpu, cpu]." << std::endl;
         return args;
     }
     args.areValid = true;
@@ -195,7 +235,7 @@ int main(int argc, char **argv) {
     }
 
     try {
-        return processHalide(args.imagePath, args.reps, args.pipelineType);
+        return processHalide(args.imagePath, args.reps, args.pipelineType, args.target);
     } catch (CompileError &e) {
         std::cout << e.what() << std::endl;
     } catch (RuntimeError &e) {
