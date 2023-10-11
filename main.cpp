@@ -138,8 +138,11 @@ Buffer<uint8_t> runPipeline(std::shared_ptr<HalidePipeline> pipeline,
     auto realizationHeight = image.height();
 
     auto outputBuffer = Halide::Buffer<uint8_t>(realizationWidth, realizationHeight);
-    // Warm-up before measuring
-    pipeline->result.realize(outputBuffer, target);
+
+    double warmupTime = measureExecutionTime([&pipeline, &outputBuffer, &target] {
+        // Warm-up before measuring
+        pipeline->result.realize(outputBuffer, target);
+    });
 
     double executionTime = measureExecutionTime([&pipeline, &outputBuffer, &reps, &target] {
         for (int i = 0; i < reps; i++) {
@@ -151,6 +154,8 @@ Buffer<uint8_t> runPipeline(std::shared_ptr<HalidePipeline> pipeline,
     if (target.has_gpu_feature()) {
         outputBuffer.copy_to_host();
     }
+
+    std::cout << "Warmup time: " << warmupTime * 1000 << " ms" << std::endl;
     std::cout << "Execution time: " << (executionTime / reps) * 1000 << " ms/rep" << std::endl;
 
     return outputBuffer;
