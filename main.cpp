@@ -153,23 +153,25 @@ Buffer<uint8_t> runPipeline(std::shared_ptr<HalidePipeline> pipeline,
 
     auto outputBuffer = Halide::Buffer<uint8_t>(realizationWidth, realizationHeight);
 
-    printCurrentTime();
     double warmupTime = measureExecutionTime([&pipeline, &outputBuffer, &target] {
         // Warm-up before measuring
         pipeline->result.realize(outputBuffer, target);
+
+        // Copy from GPU. Must be called, because the GPU runs asynchronously.
+        if (target.has_gpu_feature()) {
+            outputBuffer.copy_to_host();
+        }
     });
-    printCurrentTime();
     double executionTime = measureExecutionTime([&pipeline, &outputBuffer, &reps, &target] {
         for (int i = 0; i < reps; i++) {
             pipeline->result.realize(outputBuffer, target);
+
+            // Copy from GPU. Must be done for each rep, because the GPU runs asynchronously.
+            if (target.has_gpu_feature()) {
+                outputBuffer.copy_to_host();
+            }
         }
     });
-    printCurrentTime();
-    // Copy from GPU
-    if (target.has_gpu_feature()) {
-        outputBuffer.copy_to_host();
-    }
-    printCurrentTime();
 
     std::cout << "Warmup time: " << warmupTime * 1000 << " ms" << std::endl;
     std::cout << "Execution time: " << (executionTime / reps) * 1000 << " ms/rep" << std::endl;
