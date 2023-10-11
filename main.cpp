@@ -131,6 +131,20 @@ void printPipelineSchedule(std::shared_ptr<HalidePipeline> pipeline) {
     printf("\n");
 }
 
+void printCurrentTime() {
+    // Capture the current time point
+    auto currentTimePoint = std::chrono::high_resolution_clock::now();
+
+    // Convert the time point to a time_t (C time) representation
+    std::time_t time = std::chrono::high_resolution_clock::to_time_t(currentTimePoint);
+
+    // Convert the time_t to a string for printing
+    std::string currentTimeString = std::ctime(&time);
+
+    // Print the current time
+    std::cout << "Current time: " << currentTimeString;
+}
+
 Buffer<uint8_t> runPipeline(std::shared_ptr<HalidePipeline> pipeline,
                             const Buffer<uint8_t> &image,
                             const Target &target, int reps) {
@@ -139,21 +153,23 @@ Buffer<uint8_t> runPipeline(std::shared_ptr<HalidePipeline> pipeline,
 
     auto outputBuffer = Halide::Buffer<uint8_t>(realizationWidth, realizationHeight);
 
+    printCurrentTime();
     double warmupTime = measureExecutionTime([&pipeline, &outputBuffer, &target] {
         // Warm-up before measuring
         pipeline->result.realize(outputBuffer, target);
     });
-
+    printCurrentTime();
     double executionTime = measureExecutionTime([&pipeline, &outputBuffer, &reps, &target] {
         for (int i = 0; i < reps; i++) {
             pipeline->result.realize(outputBuffer, target);
         }
     });
-
+    printCurrentTime();
     // Copy from GPU
     if (target.has_gpu_feature()) {
         outputBuffer.copy_to_host();
     }
+    printCurrentTime();
 
     std::cout << "Warmup time: " << warmupTime * 1000 << " ms" << std::endl;
     std::cout << "Execution time: " << (executionTime / reps) * 1000 << " ms/rep" << std::endl;
