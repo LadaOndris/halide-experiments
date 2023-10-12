@@ -1,6 +1,6 @@
 
-#include "ColorToGrayConverter.h"
-#include "gpu.h"
+#include "pipelines/ColorToGrayConverter.h"
+#include "target.h"
 
 ColorToGrayConverter::ColorToGrayConverter(const Buffer<uint8_t> &input)
         : input(input),

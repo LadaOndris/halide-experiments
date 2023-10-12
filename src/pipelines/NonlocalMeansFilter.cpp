@@ -1,8 +1,8 @@
 
 
 
-#include "nonlocal_means_filter.h"
-#include "gpu.h"
+#include "pipelines/NonlocalMeansFilter.h"
+#include "target.h"
 
 NonlocalMeansFilter::NonlocalMeansFilter(
         const Buffer<uint8_t> &input, int patchSize, int searchWindowSize) :

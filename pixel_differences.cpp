@@ -1,8 +1,8 @@
 #include "Halide.h"
 
 // Include some support code for loading pngs.
-#include "include/stb_image.h"
-#include "include/stb_image_write.h"
+#include "lib/stb/stb_image.h"
+#include "lib/stb/stb_image_write.h"
 //using namespace Halide::Tools;
 using namespace Halide;
 
