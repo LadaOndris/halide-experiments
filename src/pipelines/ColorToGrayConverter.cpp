@@ -15,7 +15,6 @@ void ColorToGrayConverter::implement() {
 }
 
 void ColorToGrayConverter::scheduleForCPU() {
-    Var x_inner, y_inner, x_outer, y_outer, tile_index;
     result.vectorize(x, 4)
             .parallel(y);
 }
